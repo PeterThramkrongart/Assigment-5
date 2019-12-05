@@ -1,0 +1,356 @@
+---
+title: "Assignment 5 - Meta-analysis of pitch in schizophrenia"
+author: "Riccardo Fusaroli"
+date: "3/7/2019"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+
+# Building on the shoulders of giants: meta-analysis
+
+## Questions to be answered
+
+1. What is the current evidence for distinctive vocal patterns in schizophrenia? Report how many papers report quantitative estimates, comment on what percentage of the overall studies reviewed they represent (see PRISMA chart) your method to analyze them, the estimated effect size of the difference (mean effect size and standard error) and forest plots representing it. N.B. Only measures of pitch mean and pitch sd are required for the assignment. Feel free to ignore the rest (although pause behavior looks interesting, if you check my article).
+
+```{r}
+# load libraries
+pacman::p_load(pacman,tidyverse,metafor,lmerTest, dplyr)
+
+# read file into a dataframe
+crazyData <- readxl::read_excel("Matrix_MetaAnalysis_Diagnosis_updated290719.xlsx")
+
+# subsetting control data
+behavedData <- crazyData %>% select("StudyID",TYPE_OF_TASK,DIAGNOSIS,SAMPLE_SIZE_HC,SAMPLE_SIZE_SZ,PITCH_F0_HC_M,PITCH_F0_HC_SD,PITCH_F0_SZ_M, PITCH_F0_SZ_SD)
+
+# subsetting schizophrenia data
+behavedDataSD <- crazyData %>% select("StudyID",TYPE_OF_TASK,DIAGNOSIS,SAMPLE_SIZE_HC,SAMPLE_SIZE_SZ,PITCH_F0SD_HC_M,PITCH_F0SD_HC_SD,PITCH_F0SD_SZ_M,PITCH_F0SD_SZ_SD)
+
+# deleting NA's (which downsamples our dataset for metaanalysis, because studies use different measurements)
+behavedData <- na.omit(behavedData)
+behavedDataSD <- na.omit(behavedDataSD)
+
+# set variables as a factor, introducing levels
+behavedData <- behavedData %>% 
+mutate_at(c("TYPE_OF_TASK","StudyID"),as.factor)
+
+```
+
+
+```{r}
+
+# calculating effect size for mean meassures dataframe
+behavedData <- metafor::escalc("SMD",
+n1i = SAMPLE_SIZE_SZ, n2i = SAMPLE_SIZE_HC,
+m1i = PITCH_F0_SZ_M, m2i = PITCH_F0_HC_M,
+sd1i = PITCH_F0_SZ_SD, sd2i = PITCH_F0_HC_SD,data=behavedData)
+
+# set and examine factor levels
+behavedData$TYPE_OF_TASK <- behavedData$TYPE_OF_TASK %>% as.factor()
+behavedData$TYPE_OF_TASK %>% levels()
+
+# defining a simple model predicting effect size with studies weighted by their squared standard deviation
+simpleModel <- lmer(yi ~ 1 + (1|StudyID), behavedData, weights = 1/vi, REML=F,
+control = lmerControl(
+check.nobs.vs.nlev="ignore",
+check.nobs.vs.nRE="ignore"))
+
+# defining a model predicting effect size from type of task with studies weighted by their squared standard deviation
+intermediateModel <- lmer(yi ~ 1 + TYPE_OF_TASK + (1|StudyID), behavedData, weights = 1/vi, REML=F,
+control = lmerControl(
+check.nobs.vs.nlev="ignore",
+check.nobs.vs.nRE="ignore"))
+
+# summarize statistical analysis of healthy controls
+summary(simpleModel)
+summary(intermediateModel)
+
+# defining a model using the rma (regression meta analysis) function that fits the meta-analytic models via linear mixed effects models
+metaModel <- rma(yi, vi, data = behavedData, slab=StudyID)
+
+
+#adding fixed effects
+metaFixedModel <- rma(yi, vi, data = behavedData,mods = cbind(TYPE_OF_TASK), slab=StudyID,weighted=T)
+
+
+
+# summarize models
+summary(metaModel)
+summary(metaFixedModel)
+
+
+# creating forest plots to visualize the standardized mean difference of the studies in the meta analysis
+
+forest(metaModel, main = "Mean Model")
+forest(metaFixedModel, main="Mean Model with Fixed Effect = Task")
+
+
+```
+```{r}
+# calculating effect size for standard deviation 
+behavedDataSD <- metafor::escalc("SMD",
+n1i = SAMPLE_SIZE_SZ, n2i = SAMPLE_SIZE_HC,
+m1i = PITCH_F0SD_SZ_M, m2i = PITCH_F0SD_HC_M,
+sd1i = PITCH_F0SD_HC_SD, sd2i = PITCH_F0SD_SZ_SD,data=behavedDataSD)
+
+# set and examine factor levels
+behavedDataSD$TYPE_OF_TASK <- behavedDataSD$TYPE_OF_TASK %>% as.factor()
+behavedDataSD$TYPE_OF_TASK %>% levels()
+
+# defining a simple model predicting effect size with studies weighted by their squared standard deviation
+simpleModelSD <- lmer(yi ~ 1 + (1|StudyID), behavedDataSD, weights = 1/vi, REML=F,
+control = lmerControl(
+check.nobs.vs.nlev="ignore",
+check.nobs.vs.nRE="ignore"))
+
+# defining a model predicting effect size from type of task with studies weighted by their squared standard deviation
+intermediateModelSD <- lmer(yi ~ 1 + TYPE_OF_TASK + (1|StudyID), behavedDataSD, weights = 1/vi, REML=F,
+control = lmerControl(
+check.nobs.vs.nlev="ignore",
+check.nobs.vs.nRE="ignore"))
+
+# summarize statistical analysis of healthy controls
+summary(simpleModelSD)
+summary(intermediateModelSD)
+
+# defining a model using the regression meta analysis function 
+metaModelSD <- rma(yi, vi, data = behavedDataSD, slab=StudyID)
+
+#adding Fixed effects
+metaFixedModelSD <- rma(yi, vi, data = behavedDataSD,mods = cbind(TYPE_OF_TASK), slab=StudyID,weighted=T)
+
+
+# summarize models
+summary(metaModelSD)
+
+summary(metaFixedModelSD)
+
+
+# creating a forest plot to visualize the standardized mean difference of the studies in the meta analysis
+
+forest(metaModelSD, main = "SD Model")
+
+forest(metaFixedModelSD, main = "SD Model, Fixed effect = Task")
+
+
+
+```
+
+
+2. Do the results match your own analysis from Assignment 3? If you add your results to the meta-analysis, do the estimated effect sizes change? Report the new estimates and the new forest plots.
+
+```{r}
+#### Create separate calculations for our own study assignment 3 ####
+# Read data from previous study into data frame
+ownData <- read.csv("assignment3.csv")
+
+# Subset dataframe by selecting diagnosis, mean, sd, and subject id.
+ownData <- ownData %>% select(Diagnosis, mean, sd, Subject)
+
+# Convert Diagnosis from levels to characters
+ownData$Diagnosis <- as.character(ownData$Diagnosis)
+
+
+
+# Create a dataframe of means including our study assignment
+#SZ
+# create schizophrenia data frame
+szData <- filter(ownData, Diagnosis == "Schizophrenia")
+
+# calculating number of participants
+szNumber <- n_distinct(szData$Subject)
+# n = 59
+
+# mean pitch and mean of mean pitch of schizophrenic participants
+szMeanVec <- szData %>% group_by(Subject) %>%
+  summarize(mean=mean(mean))
+szMeanMean <- mean(szMeanVec$mean)
+
+# standard deviation of the mean pitch
+szSDMean <- sd(szMeanVec$mean)
+
+# HC
+# create a healthy control data frame
+hcData <- filter(ownData, Diagnosis == "Control")
+
+ # calculate number of participants
+hcNumber <- n_distinct(hcData$Subject)
+# n = 59
+
+# find mean pitch and mean of mean pitch of healthy controls
+hcMeanVec <- hcData %>% group_by(Subject) %>%
+  summarize(mean=mean(mean))
+hcMeanMean <- mean(hcMeanVec$mean)
+
+# standard deviation of the mean pitch
+hcSDMean <- sd(hcMeanVec$mean)
+
+# create dataframe
+ourOwnData <- data.frame(StudyID = "4", TYPE_OF_TASK = "FREE", DIAGNOSIS = "SZ", SAMPLE_SIZE_HC = hcNumber, SAMPLE_SIZE_SZ = szNumber, PITCH_F0_HC_M = hcMeanMean, PITCH_F0_HC_SD = hcSDMean, PITCH_F0_SZ_M = szMeanMean, PITCH_F0_SZ_SD = szSDMean,yi=NA,vi=NA)
+
+# binding data frame into one with previous data
+mergedData <- rbind.data.frame(behavedData, ourOwnData)
+
+# creating effectsize and measures of uncertainty
+mergedData  <- metafor::escalc("SMD",
+n1i = SAMPLE_SIZE_SZ, n2i = SAMPLE_SIZE_HC,
+m1i = PITCH_F0_SZ_M, m2i = PITCH_F0_HC_M,
+sd1i = PITCH_F0_SZ_SD, sd2i = PITCH_F0_HC_SD,data=mergedData )
+
+
+# create a model using effect size and an uncertainty measure
+metaModelOwn <- rma(yi, vi, data = mergedData, slab=StudyID)
+
+#adding fixed effects
+metaFixedModelOwn <- rma(yi, vi, data = mergedData,cbind("TYPE_OF_TASK"),weighted=T, slab=StudyID)
+
+
+#looking at models
+summary(metaModelOwn)
+summary(metaFixedModelOwn)
+
+
+# create forest plots displaying effectsizes
+forest(metaModelOwn, main= "Mean Model")
+forest(metaFixedModelOwn, main = "Mean Model, Fixed effect = Task")
+
+
+
+# create a data frame of SD's including our study assignment
+#SZ
+# mean pitch and mean of mean pitch of schizophrenic participants
+szSDVec <- szData %>% group_by(Subject) %>%
+  summarize(meanSD=mean(sd)) 
+
+# mean and sd of standard deviation vector
+szMeanSD <- mean(szSDVec$meanSD)
+szSDSD <- sd(szSDVec$meanSD)
+
+# HC
+# find mean pitch and mean of mean pitch of healthy controls
+hcSDVec <- hcData %>% group_by(Subject) %>%
+  summarize(meanSD=mean(sd))
+
+# mean and sd of standard deviation vector
+hcMeanSD <- mean(hcSDVec$meanSD)
+hcSDSD <- sd(hcSDVec$meanSD)
+
+# create row in dataframe following earlier example
+ourOwnDataSD <- data.frame(StudyID = "4", TYPE_OF_TASK = "FREE", DIAGNOSIS = "SZ", SAMPLE_SIZE_HC = hcNumber, SAMPLE_SIZE_SZ = szNumber, PITCH_F0SD_HC_M = hcMeanSD, PITCH_F0SD_HC_SD = hcSDSD, PITCH_F0SD_SZ_M = szMeanSD, PITCH_F0SD_SZ_SD = szSDSD,yi=NA,vi=NA)
+
+
+# binding data frame into one with previous data
+mergedDataSD <- rbind.data.frame(behavedDataSD, ourOwnDataSD)
+
+# creating effectsize and measures of uncertainty
+mergedDataSD <- metafor::escalc("SMD",
+n1i = SAMPLE_SIZE_SZ, n2i = SAMPLE_SIZE_HC,
+m1i = PITCH_F0SD_SZ_M, m2i = PITCH_F0SD_HC_M,
+sd1i = PITCH_F0SD_HC_SD, sd2i = PITCH_F0SD_SZ_SD,data=mergedDataSD)
+
+
+# create a model using effect size and an uncertainty measure
+metaModelOwnSD <- rma(yi, vi, data = mergedDataSD, slab=StudyID)
+
+#addign fixed effects
+metaFixedModelOwnSD <- rma(yi, vi, data = mergedDataSD,mods = cbind(TYPE_OF_TASK), slab=StudyID,weighted=T)
+
+# summarize models
+summary(metaModelOwnSD)
+
+summary(metaFixedModelOwnSD)
+
+# create forest plots displaying effectsizes
+forest(metaModelOwnSD, main = "SD Model")
+
+forest(metaFixedModelOwnSD, main = "SD Model, Fixed effect = Task")
+
+```
+
+3. Assess the quality of the literature: report and comment on heterogeneity of the studies (tau, I2), on publication bias (funnel plot), and on influential studies.
+
+```{r}
+# create two funnel plots in order to investigate publication bias
+funnel(metaModel, main = "Mean Model")
+funnel(metaModelSD, main = "SD Model")
+
+# fixed effects
+funnel(metaFixedModel, main = "Mean Model, Fixed Effect = Task")
+funnel(metaFixedModelSD, main = "SD Model, Fixed Effect = Task")
+
+# testing for influential studies using influence plots
+# meta model with means
+influence <- influence(metaModel)
+plot(influence)
+# meta model with sdandard deviation
+influenceSD <- influence(metaModelSD)
+plot(influenceSD)
+
+
+
+#fixed effects
+influenceFixed <- influence(metaFixedModel)
+plot(influenceFixed)
+# meta model with sdandard deviation
+influenceSDFixed <- influence(metaFixedModelSD)
+plot(influenceSDFixed)
+
+
+# Extra tests
+# funnel
+regtest(metaModel) # test for funnel plot asymmetry: z = 1.5798, p = 0.1142
+regtest(metaModelSD) # test for funnel plot asymmetry: z = 0.2004, p = 0.8412
+
+# kendall's tau
+ranktest(metaModel) # k tau = 0.20, p = 0.72
+ranktest(metaModelSD) # k tau = -0.28, p = 0.69
+# tau 2
+metaModel$tau2 # 0.071
+metaModelSD$tau2 # 1.30
+
+# calculate I square from the two meta models
+metaModel$I2
+# 50.29
+metaModelSD$I2
+# 95.37
+
+
+# Extra tests
+# funnel
+regtest(metaFixedModel) # test for funnel plot asymmetry: z = 1.1308, p = 0.2581
+regtest(metaFixedModelSD) # test for funnel plot asymmetry: z = 0.3027, p = 0.7621
+
+# kendall's tau
+ranktest(metaFixedModel) #Kendall's tau = 0.2000, p = 0.7194
+ranktest(metaFixedModelSD) #Kendall's tau = -0.2762, p = 0.1686
+# tau^2
+metaFixedModel$tau2 # 0.09239298
+metaFixedModelSD$tau2 #1.35172
+
+# calculate I square from the two meta models
+metaFixedModel$I2
+# 55.33512
+metaFixedModelSD$I2
+# 95.56817
+
+
+
+```
+
+
+## Tips on the process to follow:
+
+- Download the data on all published articles analyzing voice in schizophrenia and the prisma chart as reference of all articles found and reviewed
+- Look through the dataset to find out which columns to use, and if there is any additional information written as comments (real world data is always messy!).
+    * Hint: PITCH_F0M and PITCH_F0SD group of variables are what you need
+    * Hint: Make sure you read the comments in the columns: `pitch_f0_variability`, `frequency`, `Title`,  `ACOUST_ANA_DESCR`, `DESCRIPTION`, and frma`COMMENTS`
+- Following the procedure in the slides calculate effect size and standard error of the effect size per each study. N.B. we focus on pitch mean and pitch standard deviation.
+ . first try using lmer (to connect to what you know of mixed effects models)
+ . then use rma() (to get some juicy additional statistics)
+
+- Build a forest plot of the results (forest(model))
+ 
+- Go back to Assignment 3, add your own study to the data table, and re-run meta-analysis. Do the results change?
+
+- Now look at the output of rma() and check tau and I2
